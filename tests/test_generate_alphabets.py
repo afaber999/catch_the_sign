@@ -1,5 +1,5 @@
 import io
-import string
+import json
 import tempfile
 import unittest
 import wave
@@ -9,136 +9,190 @@ from unittest.mock import patch
 
 import numpy as np
 
-from callsign_trainer.app import ACCENT_VOICES, phonetic_call_sign
-from scripts import generate_alphabets
+from callsign_trainer.recordings import CHARACTERS, load_recording, sha256_file
+from scripts import generate_alphabets as generator
 
 
 class GenerateAlphabetsTests(unittest.TestCase):
-    def create_models(self, directory):
-        for name in ACCENT_VOICES.values():
-            model = directory / f"{name}.onnx"
-            model.touch()
-            Path(f"{model}.json").touch()
+    def create_model(self, directory, name="nl_NL-test"):
+        model = Path(directory) / f"{name}.onnx"
+        model.write_bytes(b"model")
+        Path(f"{model}.json").write_bytes(b"config")
+        return model
 
-    def test_generates_alphabet_then_digits_for_all_accents(self):
+    def make_voice(self, language="nl"):
+        return SimpleNamespace(config=SimpleNamespace(
+            espeak_voice=language, sample_rate=1000, num_speakers=2
+        ))
+
+    def test_synthesizes_each_character_and_creates_valid_pair(self):
         with tempfile.TemporaryDirectory() as directory:
-            models = Path(directory) / "models"
-            output = Path(directory) / "recordings"
-            models.mkdir()
-            self.create_models(models)
+            model = self.create_model(directory)
+            output = Path(directory) / "output"
             spoken = []
 
-            def load_voice(model, config_path):
-                language = "nl" if model.name.startswith("nl_") else "en-us"
-                return SimpleNamespace(config=SimpleNamespace(espeak_voice=language))
-
-            def synthesize(voice, text, speed):
-                spoken.append((voice.config.espeak_voice, text, speed))
-                return np.array([0.0, 0.5, -0.5], dtype=np.float32), 22050
+            def synthesize(voice, text, speaker_id):
+                spoken.append((text, speaker_id))
+                return np.array([1000, -1000], dtype="<i2"), 1000
 
             with (
-                patch.object(generate_alphabets.PiperVoice, "load", side_effect=load_voice),
-                patch.object(generate_alphabets, "synthesize", side_effect=synthesize),
-                patch("builtins.print"),
+                patch("piper.PiperVoice.load", return_value=self.make_voice()),
+                patch.object(generator, "synthesize", side_effect=synthesize),
             ):
-                self.assertEqual(
-                    generate_alphabets.main(
-                        ["--models-dir", str(models), "--output-dir", str(output)]
-                    ),
-                    0,
+                name = generator.generate_recording(model, output)
+            voice = load_recording(output, name)
+            self.assertEqual(len(spoken), 36)
+            self.assertEqual(spoken[0], ("alfa", None))
+            self.assertEqual(spoken[23], ("eks reej", None))
+            self.assertEqual(spoken[26], ("Zero", None))
+            self.assertEqual(voice.segments["9"], (70, 72))
+            self.assertEqual(voice.metadata["spoken_language"], "English")
+            self.assertEqual(voice.metadata["accent"], "nl_NL")
+            self.assertEqual(voice.metadata["source_model_sha256"], sha256_file(model))
+            self.assertEqual(voice.metadata["wav_sha256"], sha256_file(output / f"{name}.wav"))
+            self.assertIsNone(voice.metadata["license"])
+
+    def test_italian_synthesis_is_slower(self):
+        class FakeVoice:
+            def __init__(self, language):
+                self.config = SimpleNamespace(
+                    sample_rate=22050, length_scale=1.0, espeak_voice=language
                 )
 
-            self.assertEqual(
-                {path.name for path in output.iterdir()},
-                {f"{accent}.wav" for accent in ACCENT_VOICES},
-            )
-            for language, text, speed in spoken:
-                self.assertEqual(
-                    text,
-                    ", ".join(
-                        phonetic_call_sign(character, language)
-                        for character in string.ascii_uppercase + string.digits
-                    ),
-                )
-                expected_digits = (
-                    "Zero, wan, toe, trie, for, faiv, sikss, sevven, eit, nain"
-                    if language == "nl"
-                    else "Zero, One, Two, Three, Four, Five, Six, Seven, Eight, Nine"
-                )
-                self.assertTrue(text.endswith(expected_digits))
-                self.assertEqual(speed, 0.8)
-            self.assertEqual(len(spoken), len(ACCENT_VOICES))
-            with wave.open(str(output / "dutch.wav"), "rb") as wav:
-                self.assertEqual((wav.getnchannels(), wav.getsampwidth(), wav.getframerate()), (1, 2, 22050))
-                self.assertEqual(wav.getnframes(), 3)
+            def synthesize_wav(self, text, wav, syn_config):
+                self.length_scale = syn_config.length_scale
+                wav.writeframes(np.array([1], dtype="<i2").tobytes())
 
-    def test_missing_voice_does_not_create_partial_output(self):
+        italian = FakeVoice("it")
+        french = FakeVoice("fr")
+        generator.synthesize(italian, "Alpha")
+        generator.synthesize(french, "Alpha")
+        self.assertAlmostEqual(french.length_scale, 1.0 / 0.8)
+        self.assertAlmostEqual(italian.length_scale, 1.0 / (0.8 * 0.65))
+
+    def test_empty_synthesis_is_an_error(self):
+        class EmptyVoice:
+            config = SimpleNamespace(sample_rate=22050, length_scale=1.0, espeak_voice="en")
+
+            def synthesize_wav(self, text, wav, syn_config):
+                pass
+
+        with self.assertRaisesRegex(ValueError, "no speech"):
+            generator.synthesize(EmptyVoice(), "Alpha")
+
+    def test_overwrite_preserves_metadata_but_clears_rights_when_model_changes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            model = self.create_model(directory)
+            output = Path(directory) / "output"
+            with (
+                patch("piper.PiperVoice.load", return_value=self.make_voice()),
+                patch.object(generator, "synthesize", return_value=(np.array([1], dtype="<i2"), 1000)),
+            ):
+                name = generator.generate_recording(model, output)
+                index_path = output / f"{name}.json"
+                index = json.loads(index_path.read_text(encoding="utf-8"))
+                index.update(display_name="My voice", license="Known", provenance="My source", custom="kept")
+                index_path.write_text(json.dumps(index), encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "--overwrite"):
+                    generator.generate_recording(model, output)
+                generator.generate_recording(model, output, overwrite=True)
+                index = json.loads(index_path.read_text(encoding="utf-8"))
+                self.assertEqual((index["display_name"], index["license"], index["custom"]), ("My voice", "Known", "kept"))
+                model.write_bytes(b"changed")
+                generator.generate_recording(model, output, overwrite=True)
+                index = json.loads(index_path.read_text(encoding="utf-8"))
+                self.assertEqual(index["display_name"], "My voice")
+                self.assertIsNone(index["license"])
+                self.assertIsNone(index["provenance"])
+
+    def test_never_overwrites_human_or_incomplete_pairs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            model = self.create_model(directory)
+            output = Path(directory) / "output"
+            with (
+                patch("piper.PiperVoice.load", return_value=self.make_voice()),
+                patch.object(generator, "synthesize", return_value=(np.array([1], dtype="<i2"), 1000)),
+            ):
+                name = generator.generate_recording(model, output)
+                index_path = output / f"{name}.json"
+                index = json.loads(index_path.read_text(encoding="utf-8"))
+                index["origin"] = "human"
+                index_path.write_text(json.dumps(index), encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "human"):
+                    generator.generate_recording(model, output, overwrite=True)
+                index_path.unlink()
+                with self.assertRaisesRegex(ValueError, "incomplete"):
+                    generator.generate_recording(model, output, overwrite=True)
+
+    def test_failure_does_not_publish_partial_pair_and_other_models_continue(self):
         with tempfile.TemporaryDirectory() as directory:
             models = Path(directory) / "models"
-            output = Path(directory) / "recordings"
             models.mkdir()
+            bad = self.create_model(models, "a_bad")
+            self.create_model(models, "b_good")
+            output = Path(directory) / "output"
+
+            def load(model, config_path):
+                return self.make_voice("bad" if model == bad else "nl")
+
+            def synthesize(voice, text, speaker_id):
+                if voice.config.espeak_voice == "bad":
+                    raise ValueError("synthesis failed")
+                return np.array([1], dtype="<i2"), 1000
+
             with (
+                patch("piper.PiperVoice.load", side_effect=load),
+                patch.object(generator, "synthesize", side_effect=synthesize),
                 patch("sys.stderr", new_callable=io.StringIO) as stderr,
-                self.assertRaises(SystemExit) as result,
+                patch("sys.stdout", new_callable=io.StringIO),
             ):
-                generate_alphabets.main(
-                    ["--models-dir", str(models), "--output-dir", str(output)]
-                )
-            self.assertEqual(result.exception.code, 2)
-            self.assertIn("missing german voice file", stderr.getvalue())
-            self.assertFalse(output.exists())
+                self.assertEqual(generator.main(["--models-dir", str(models), "--output-dir", str(output)]), 1)
+            self.assertIn("synthesis failed", stderr.getvalue())
+            self.assertFalse((output / "a_bad.wav").exists())
+            self.assertFalse((output / "a_bad.json").exists())
+            self.assertEqual(set(load_recording(output, "b_good").segments), set(CHARACTERS))
 
-    def test_existing_recording_is_not_overwritten_without_permission(self):
+    def test_explicit_speaker_has_distinct_name_and_rejects_bad_id(self):
         with tempfile.TemporaryDirectory() as directory:
-            models = Path(directory) / "models"
-            output = Path(directory) / "recordings"
-            models.mkdir()
-            output.mkdir()
-            self.create_models(models)
-            existing = output / "dutch.wav"
-            existing.write_bytes(b"existing")
+            model = self.create_model(directory)
+            output = Path(directory) / "output"
             with (
-                patch("sys.stderr", new_callable=io.StringIO) as stderr,
-                patch.object(generate_alphabets.PiperVoice, "load") as load,
-                self.assertRaises(SystemExit),
+                patch("piper.PiperVoice.load", return_value=self.make_voice()),
+                patch.object(generator, "synthesize", return_value=(np.array([1], dtype="<i2"), 1000)) as synthesize,
             ):
-                generate_alphabets.main(
-                    ["--models-dir", str(models), "--output-dir", str(output)]
-                )
-            self.assertIn("--overwrite", stderr.getvalue())
-            self.assertEqual(existing.read_bytes(), b"existing")
-            load.assert_not_called()
+                name = generator.generate_recording(model, output, speaker_id=1)
+                self.assertEqual(name, "nl_NL-test-speaker-1")
+                self.assertTrue(all(call.args[2] == 1 for call in synthesize.call_args_list))
+                with self.assertRaisesRegex(ValueError, "outside"):
+                    generator.generate_recording(model, output, speaker_id=2)
+            self.assertFalse((output / "nl_NL-test-speaker-2.wav").exists())
 
-    def test_overwrite_replaces_an_existing_recording(self):
+    def test_failed_publication_restores_previous_pair(self):
         with tempfile.TemporaryDirectory() as directory:
-            models = Path(directory) / "models"
-            output = Path(directory) / "recordings"
-            models.mkdir()
-            output.mkdir()
-            model = models / "test.onnx"
-            model.touch()
-            Path(f"{model}.json").touch()
-            recording = output / "dutch.wav"
-            recording.write_bytes(b"existing")
-            voice = SimpleNamespace(config=SimpleNamespace(espeak_voice="nl"))
+            model = self.create_model(directory)
+            output = Path(directory) / "output"
             with (
-                patch.object(generate_alphabets, "ACCENT_VOICES", {"dutch": "test"}),
-                patch.object(generate_alphabets.PiperVoice, "load", return_value=voice),
-                patch.object(
-                    generate_alphabets,
-                    "synthesize",
-                    return_value=(np.array([0.0], dtype=np.float32), 22050),
-                ),
-                patch("builtins.print"),
+                patch("piper.PiperVoice.load", return_value=self.make_voice()),
+                patch.object(generator, "synthesize", return_value=(np.array([1], dtype="<i2"), 1000)),
             ):
-                self.assertEqual(
-                    generate_alphabets.main(
-                        ["--models-dir", str(models), "--output-dir", str(output), "--overwrite"]
-                    ),
-                    0,
-                )
-            with wave.open(str(recording), "rb") as wav:
-                self.assertEqual(wav.getnframes(), 1)
+                name = generator.generate_recording(model, output)
+                old_wav = (output / f"{name}.wav").read_bytes()
+                old_index = (output / f"{name}.json").read_bytes()
+                original_replace = generator.os.replace
+                calls = 0
+
+                def replace(source, target):
+                    nonlocal calls
+                    calls += 1
+                    if calls == 2:
+                        raise OSError("publication failed")
+                    return original_replace(source, target)
+
+                with patch.object(generator.os, "replace", side_effect=replace):
+                    with self.assertRaisesRegex(OSError, "publication failed"):
+                        generator.generate_recording(model, output, overwrite=True)
+                self.assertEqual((output / f"{name}.wav").read_bytes(), old_wav)
+                self.assertEqual((output / f"{name}.json").read_bytes(), old_index)
 
 
 if __name__ == "__main__":

@@ -1,34 +1,21 @@
 """Terminal-based call sign listening practice."""
 
 import argparse
-import io
 import random
 import string
 import sys
-import wave
 from importlib.resources import files
 from pathlib import Path
 
 import numpy as np
 import sounddevice as sd
-from piper import PiperVoice, SynthesisConfig
 
-PHONETIC_WORDS = dict(
-    zip(
-        string.ascii_uppercase + string.digits,
-        (
-            "Alpha Bravo Charlie Delta Echo Foxtrot Golf Hotel India Juliett "
-            "Kilo Lima Mike November Oscar Papa Quebec Romeo Sierra Tango "
-            "Uniform Victor Whiskey X-ray Yankee Zulu "
-            "Zero One Two Three Four Five Six Seven Eight Nine"
-        ).split(),
-    )
-)
+from callsign_trainer.recordings import load_recording
+
 PREFIXES = files("callsign_trainer").joinpath("prefixes.txt").read_text(
     encoding="utf-8"
 ).splitlines()
 ROUNDS = 20
-MODEL_DIR = Path("models")
 ACCENT_VOICES = {
     "german": "de_DE-thorsten-medium",
     "french": "fr_FR-siwis-medium",
@@ -36,71 +23,54 @@ ACCENT_VOICES = {
     "italian": "it_IT-paola-medium",
     "russian": "ru_RU-irina-medium",
 }
-DUTCH_PRONUNCIATIONS = {
-    "A": "alfa",
-    "J": "djoelie-et",
-    "M": "maik",
-    "Q": "kwiebek",
-    "R": "roomie-o",
-    "T": "tenggo",
-    "X": "eks reej",
-    "1": "wan",
-    "2": "toe",
-    "3": "trie",
-    "4": "for",
-    "5": "faiv",
-    "6": "sikss",
-    "7": "sevven",
-    "8": "eit",
-    "9": "nain",
-}
+DEFAULT_VOICE = "en_US-lessac-medium"
 
 
-def random_call_sign():
-    length = random.randint(1, 3)
-    return random.choice(PREFIXES) + "".join(
+def random_call_sign(max_prefix_length=None, suffix_lengths=(1, 3)):
+    prefixes = PREFIXES
+    if max_prefix_length is not None:
+        prefixes = [prefix for prefix in PREFIXES if len(prefix) <= max_prefix_length]
+    length = random.randint(*suffix_lengths)
+    return random.choice(prefixes) + "".join(
         random.choice(string.ascii_uppercase) for _ in range(length)
     )
 
 
-def phonetic_call_sign(call_sign, language=None):
-    # These spellings were selected by listening to the Dutch Piper voice.
-    overrides = DUTCH_PRONUNCIATIONS if language == "nl" else {}
-    return " ".join(
-        overrides.get(character, PHONETIC_WORDS[character]) for character in call_sign
-    )
+def render_call_sign(voice, call_sign, speed):
+    rate = speed / 0.8
+    pause = np.zeros(round(voice.sample_rate * 0.1), dtype=np.float32)
+    parts = []
+    for character in call_sign:
+        start, end = voice.segments[character]
+        clip = voice.samples[start:end]
+        if rate != 1.0:
+            import librosa
+
+            expected = max(1, round(len(clip) / rate))
+            if len(clip) < 512:
+                clip = np.pad(clip, (0, 512 - len(clip)))
+            clip = librosa.effects.time_stretch(
+                clip, rate=rate, n_fft=512, hop_length=128
+            )[:expected]
+        if parts:
+            parts.append(pause)
+        parts.append(clip)
+    return np.concatenate(parts)
 
 
-def synthesize(voice, text, speed):
-    output = io.BytesIO()
-    with wave.open(output, "wb") as wav:
-        wav.setnchannels(1)
-        wav.setsampwidth(2)
-        wav.setframerate(voice.config.sample_rate)
-        voice.synthesize_wav(
-            text,
-            wav,
-            syn_config=SynthesisConfig(length_scale=voice.config.length_scale / speed),
-        )
-    output.seek(0)
-    with wave.open(output, "rb") as wav:
-        if wav.getnchannels() != 1 or wav.getsampwidth() != 2:
-            raise ValueError("Piper produced an unsupported audio format")
-        sample_rate = wav.getframerate()
-        samples = np.frombuffer(wav.readframes(wav.getnframes()), dtype="<i2")
-    if samples.size == 0:
-        raise ValueError("Piper produced no speech")
-    return samples.astype(np.float32) / 32768, sample_rate
+def noisy_call_sign(voice, call_sign, speed, noise_level=None):
+    speech = render_call_sign(voice, call_sign, speed)
+    lead_in = np.zeros(int(voice.sample_rate * 0.1), dtype=np.float32)
+    speech = np.concatenate((lead_in, speech))
+    if noise_level is None:
+        noise_level = random.uniform(0.01, 0.05)
+    if noise_level:
+        speech = speech + np.random.normal(0, noise_level, speech.size)
+    return np.clip(speech, -1.0, 1.0).astype(np.float32)
 
 
 def play_call_sign(voice, call_sign, speed):
-    text = phonetic_call_sign(call_sign, voice.config.espeak_voice)
-    speech, sample_rate = synthesize(voice, text, speed)
-    lead_in = np.zeros(int(sample_rate * 0.1), dtype=np.float32)
-    speech = np.concatenate((lead_in, speech))
-    noise = np.random.normal(0, random.uniform(0.01, 0.05), speech.size)
-    audio = np.clip(speech + noise, -1.0, 1.0).astype(np.float32)
-    sd.play(audio, sample_rate)
+    sd.play(noisy_call_sign(voice, call_sign, speed), voice.sample_rate)
     sd.wait()
 
 
@@ -126,43 +96,68 @@ def practice_round(voice):
         speed = 0.8
 
 
+def discover_recordings(directory):
+    recordings = []
+    names = {path.stem for pattern in ("*.wav", "*.json") for path in directory.glob(pattern)}
+    for name in sorted(names):
+        try:
+            recordings.append(load_recording(directory, name))
+        except ValueError as error:
+            print(f"warning: skipping {name}: {error}", file=sys.stderr)
+    return recordings
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    voice = parser.add_mutually_exclusive_group()
-    voice.add_argument(
-        "--model", type=Path, help="Path to a local Piper .onnx voice"
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument(
+        "--voice", action="append", help="Recording name; repeat to select a random pool"
     )
-    voice.add_argument(
-        "--accent",
-        choices=ACCENT_VOICES,
-        help="Use a local voice for the selected accent",
-    )
+    selection.add_argument("--accent", choices=ACCENT_VOICES, help="Built-in voice alias")
+    selection.add_argument("--model", type=Path, help="Deprecated recording-name alias")
+    parser.add_argument("--config", type=Path, help="Deprecated; ignored")
     parser.add_argument(
-        "--config", type=Path, help="Voice config (default: MODEL.onnx.json)"
+        "--recordings-dir", type=Path, default=Path("alphabet_wavs"),
+        help="Directory containing indexed WAV files",
     )
+    parser.add_argument("--random", action="store_true", help="Choose a voice each round")
+    parser.add_argument("--list-voices", action="store_true", help="List valid recordings")
     args = parser.parse_args(argv)
-    voice_name = ACCENT_VOICES.get(args.accent, "en_US-lessac-medium")
-    model = args.model or MODEL_DIR / f"{voice_name}.onnx"
-    config = args.config or Path(f"{model}.json")
-    for path in (model, config):
-        if not path.is_file():
-            if args.model is None and path == model:
-                parser.error(
-                    f"file not found: {path}; download it with "
-                    f'"{sys.executable}" -m piper.download_voices '
-                    f"{voice_name} --download-dir {MODEL_DIR}"
-                )
-            parser.error(f"file not found: {path}")
+    if args.config is not None:
+        print("warning: --config is ignored; playback does not use Piper", file=sys.stderr)
+    if args.list_voices:
+        for voice in discover_recordings(args.recordings_dir):
+            print(f"{voice.name}: {voice.metadata['display_name']}")
+        return 0
+    if args.model is not None:
+        if args.model.suffix.lower() != ".onnx":
+            parser.error("--model must name an .onnx model")
+        print("warning: --model is deprecated; use --voice", file=sys.stderr)
+        names = [args.model.stem]
+    elif args.accent:
+        names = [ACCENT_VOICES[args.accent]]
+    else:
+        names = args.voice
+    if names and len(names) > 1 and not args.random:
+        parser.error("multiple --voice options require --random")
     try:
-        voice = PiperVoice.load(model, config_path=config)
+        if names:
+            voices = [load_recording(args.recordings_dir, name) for name in dict.fromkeys(names)]
+        elif args.random:
+            voices = discover_recordings(args.recordings_dir)
+        else:
+            voices = [load_recording(args.recordings_dir, DEFAULT_VOICE)]
+        if not voices:
+            raise ValueError(f"no valid indexed voices in {args.recordings_dir}")
         for index in range(ROUNDS):
             print(f"Round {index + 1} of {ROUNDS}")
+            voice = random.choice(voices) if args.random else voices[0]
             practice_round(voice)
     except KeyboardInterrupt:
         print("\nPractice stopped.")
         return 0
-    except (OSError, ValueError, RuntimeError, wave.Error, sd.PortAudioError) as error:
-        print(f"error: {error}", file=sys.stderr)
+    except (OSError, ValueError, RuntimeError, sd.PortAudioError) as error:
+        print(f"error: {error}\nUse --list-voices to see valid recordings.", file=sys.stderr)
         return 1
     return 0
 

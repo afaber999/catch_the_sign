@@ -9,15 +9,19 @@ description = "Practice listening to amateur radio call signs"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "numpy>=1.26,<3",
-    "piper-tts>=1.5,<2",
+    "librosa>=0.10.2,<1",
     "sounddevice>=0.5,<1",
 ]
 
+[project.optional-dependencies]
+generation = ["piper-tts>=1.5,<2"]
+
 [project.scripts]
 ssb-callsign-trainer = "callsign_trainer.app:main"
+ssb-callsign-trainer-web = "callsign_trainer.web:main"
 
 [tool.setuptools]
 packages = ["callsign_trainer"]
 
 [tool.setuptools.package-data]
-callsign_trainer = ["prefixes.txt"]
+callsign_trainer = ["prefixes.txt", "web/*.html", "web/*.css", "web/*.js"]

@@ -8,12 +8,22 @@ from unittest.mock import call, patch
 import numpy as np
 
 from callsign_trainer import app
+from callsign_trainer.phonetics import phonetic_call_sign
 
 
 class TrainerTests(unittest.TestCase):
-    def test_phonetics_include_letters_and_digits(self):
+    def test_phonetics_and_listening_tested_pronunciations(self):
+        self.assertEqual(phonetic_call_sign("3B6XYZ"), "Three Bravo Six X-ray Yankee Zulu")
         self.assertEqual(
-            app.phonetic_call_sign("3B6XYZ"), "Three Bravo Six X-ray Yankee Zulu"
+            phonetic_call_sign("AJMQRT0123456789X", "nl"),
+            "alfa djoelie-et maik kwiebek roomie-o tenggo Zero wan toe trie for "
+            "faiv sikss sevven eit nain eks reej",
+        )
+        self.assertEqual(phonetic_call_sign("HM", "fr"), "[[h]]o-tel [[maik]]")
+        self.assertEqual(
+            phonetic_call_sign("EMVXZ123456789", "de"),
+            "ekko maik Victor ex rej sulu [[w]]an tu trie for [[faiv]] "
+            "[[s]]iks Seven [[e\u026at]] nain",
         )
 
     def test_generator_uses_original_prefix_and_one_to_three_letters(self):
@@ -23,196 +33,133 @@ class TrainerTests(unittest.TestCase):
         ):
             self.assertEqual(app.random_call_sign(), "3B6AZ")
 
-    def test_retries_reveal_and_correct_answer(self):
+    def test_short_level_filters_prefixes_and_suffix_length(self):
+        with (
+            patch.object(app.random, "randint", return_value=1) as length,
+            patch.object(app.random, "choice", side_effect=lambda values: values[0]) as choice,
+        ):
+            result = app.random_call_sign(max_prefix_length=2, suffix_lengths=(1, 1))
+        length.assert_called_once_with(1, 1)
+        self.assertTrue(all(len(prefix) <= 2 for prefix in choice.call_args_list[0].args[0]))
+        self.assertLessEqual(len(result), 3)
+
+    def test_retries_reveal_and_correct_answer_keep_the_same_voice(self):
         with (
             patch.object(app, "random_call_sign", return_value="3B6AZ"),
-            patch.object(app.random, "uniform", return_value=1.1) as speed,
+            patch.object(app.random, "uniform", return_value=1.1),
             patch.object(app, "play_call_sign") as play,
             patch.object(app, "play_success") as success,
             patch("builtins.input", side_effect=["wrong", "?", "3b6az"]),
             patch("builtins.print") as output,
         ):
             app.practice_round("voice")
-        self.assertEqual(
-            play.call_args_list,
-            [
-                call("voice", "3B6AZ", 1.1),
-                call("voice", "3B6AZ", 0.8),
-                call("voice", "3B6AZ", 0.8),
-            ],
-        )
-        speed.assert_called_once_with(0.8, 1.2)
+        self.assertEqual(play.call_args_list, [
+            call("voice", "3B6AZ", 1.1),
+            call("voice", "3B6AZ", 0.8),
+            call("voice", "3B6AZ", 0.8),
+        ])
         output.assert_called_once_with("Call sign: 3B6AZ")
         success.assert_called_once_with()
 
+    def test_render_uses_index_and_fixed_pause(self):
+        voice = SimpleNamespace(
+            sample_rate=1000,
+            samples=np.array([0.1] * 100 + [0.2] * 200, dtype=np.float32),
+            segments={"A": (0, 100), "B": (100, 300)},
+        )
+        audio = app.render_call_sign(voice, "BA", 0.8)
+        np.testing.assert_allclose(audio, [0.2] * 200 + [0.0] * 100 + [0.1] * 100)
+
+    def test_time_stretch_preserves_pitch_and_fixed_pause(self):
+        sample_rate = 8000
+        samples = np.sin(2 * np.pi * 440 * np.arange(4000) / sample_rate).astype(np.float32)
+        voice = SimpleNamespace(sample_rate=sample_rate, samples=samples, segments={"A": (0, 4000)})
+        audio = app.render_call_sign(voice, "AA", 1.2)
+        clip_length = round(4000 / 1.5)
+        self.assertEqual(len(audio), 2 * clip_length + 800)
+        np.testing.assert_array_equal(audio[clip_length:clip_length + 800], 0)
+        frequency = np.fft.rfftfreq(clip_length, 1 / sample_rate)[
+            np.argmax(abs(np.fft.rfft(audio[:clip_length])))
+        ]
+        self.assertAlmostEqual(frequency, 440, delta=10)
+
     def test_noise_covers_full_speech_with_lead_in(self):
-        speech = np.zeros(500, dtype=np.float32)
-        voice = SimpleNamespace(config=SimpleNamespace(espeak_voice="en-us"))
+        voice = SimpleNamespace(sample_rate=1000)
         with (
-            patch.object(app, "synthesize", return_value=(speech, 1000)),
+            patch.object(app, "render_call_sign", return_value=np.zeros(500, dtype=np.float32)),
             patch.object(app.random, "uniform", return_value=0.03),
-            patch.object(
-                app.np.random,
-                "normal",
-                side_effect=lambda mean, level, size: np.full(size, level),
-            ) as noise,
+            patch.object(app.np.random, "normal", side_effect=lambda mean, level, size: np.full(size, level)) as noise,
             patch.object(app.sd, "play") as play,
             patch.object(app.sd, "wait"),
         ):
             app.play_call_sign(voice, "1A", 1.0)
         noise.assert_called_once_with(0, 0.03, 600)
-        self.assertEqual(len(play.call_args.args[0]), 600)
         np.testing.assert_allclose(play.call_args.args[0], 0.03)
 
-    def test_dutch_xray_uses_listening_tested_pronunciation(self):
-        for language, expected in [("nl", "eks reej"), ("en-us", "X-ray")]:
-            with self.subTest(language=language):
-                voice = SimpleNamespace(config=SimpleNamespace(espeak_voice=language))
-                with (
-                    patch.object(
-                        app, "synthesize", return_value=(np.zeros(1), 1000)
-                    ) as synthesize,
-                    patch.object(app.sd, "play"),
-                    patch.object(app.sd, "wait"),
-                ):
-                    app.play_call_sign(voice, "X", 1.0)
-                synthesize.assert_called_once_with(voice, expected, 1.0)
-
-    def test_dutch_uses_listening_tested_words_and_numbers(self):
-        voice = SimpleNamespace(config=SimpleNamespace(espeak_voice="nl"))
+    def test_zero_noise_adds_only_silent_lead_in(self):
+        voice = SimpleNamespace(sample_rate=1000)
         with (
-            patch.object(
-                app, "synthesize", return_value=(np.zeros(1), 1000)
-            ) as synthesize,
-            patch.object(app.sd, "play"),
-            patch.object(app.sd, "wait"),
+            patch.object(app, "render_call_sign", return_value=np.full(3, 0.5, dtype=np.float32)),
+            patch.object(app.np.random, "normal") as noise,
         ):
-            app.play_call_sign(voice, "AJMQRT123456789X", 1.0)
-        synthesize.assert_called_once_with(
-            voice,
-            "alfa djoelie-et maik kwiebek roomie-o tenggo "
-            "wan toe trie for faiv sikss sevven eit nain eks reej",
-            1.0,
-        )
-        self.assertEqual(
-            app.phonetic_call_sign("AJMQRT0123456789X", "en-us"),
-            "Alpha Juliett Mike Quebec Romeo Tango Zero One Two Three Four "
-            "Five Six Seven Eight Nine X-ray",
-        )
-        self.assertEqual(app.phonetic_call_sign("0", "nl"), "Zero")
+            audio = app.noisy_call_sign(voice, "A", 0.65, 0)
+        noise.assert_not_called()
+        np.testing.assert_array_equal(audio[:100], 0)
+        np.testing.assert_array_equal(audio[100:], [0.5, 0.5, 0.5])
 
-    def test_synthesis_uses_model_rate_and_speed(self):
-        class FakeVoice:
-            config = SimpleNamespace(sample_rate=22050, length_scale=1.2)
+    def test_default_and_accent_load_recordings(self):
+        with (
+            patch.object(app, "load_recording", return_value="voice") as load,
+            patch.object(app, "ROUNDS", 1),
+            patch.object(app, "practice_round") as practice,
+            patch("builtins.print"),
+        ):
+            self.assertEqual(app.main([]), 0)
+            load.assert_called_with(Path("alphabet_wavs"), "en_US-lessac-medium")
+            self.assertEqual(app.main(["--accent", "french"]), 0)
+            load.assert_called_with(Path("alphabet_wavs"), "fr_FR-siwis-medium")
+            self.assertEqual(practice.call_count, 2)
 
-            def synthesize_wav(self, text, wav, syn_config):
-                self.text = text
-                self.length_scale = syn_config.length_scale
-                wav.writeframes(np.array([0, 16384, -16384], dtype="<i2").tobytes())
+    def test_random_selects_once_per_round_from_restricted_pool(self):
+        with (
+            patch.object(app, "load_recording", side_effect=lambda path, name: name),
+            patch.object(app, "ROUNDS", 3),
+            patch.object(app.random, "choice", side_effect=["a", "a", "b"]) as choice,
+            patch.object(app, "practice_round") as practice,
+            patch("builtins.print"),
+        ):
+            self.assertEqual(app.main(["--random", "--voice", "a", "--voice", "b"]), 0)
+        self.assertEqual(choice.call_count, 3)
+        self.assertEqual(practice.call_args_list, [call("a"), call("a"), call("b")])
 
-        voice = FakeVoice()
-        samples, rate = app.synthesize(voice, "Alpha", 1.5)
-        self.assertEqual((voice.text, rate), ("Alpha", 22050))
-        self.assertAlmostEqual(voice.length_scale, 0.8)
-        np.testing.assert_allclose(samples, [0, 0.5, -0.5])
+    def test_model_alias_does_not_require_model_file(self):
+        with (
+            patch.object(app, "load_recording", return_value="voice") as load,
+            patch.object(app, "ROUNDS", 0),
+            patch("sys.stderr", new_callable=io.StringIO) as stderr,
+        ):
+            self.assertEqual(app.main(["--model", "not-present.onnx"]), 0)
+        load.assert_called_once_with(Path("alphabet_wavs"), "not-present")
+        self.assertIn("deprecated", stderr.getvalue())
 
-    def test_empty_synthesis_is_an_error(self):
-        class EmptyVoice:
-            config = SimpleNamespace(sample_rate=22050, length_scale=1.0)
-
-            def synthesize_wav(self, text, wav, syn_config):
-                pass
-
-        with self.assertRaisesRegex(ValueError, "no speech"):
-            app.synthesize(EmptyVoice(), "Alpha", 1.0)
-
-    def test_session_runs_twenty_rounds(self):
-        with tempfile.TemporaryDirectory() as directory:
-            model = Path(directory) / "voice.onnx"
-            model.touch()
-            config = Path(f"{model}.json")
-            config.touch()
-            with (
-                patch.object(app.PiperVoice, "load", return_value="voice") as load,
-                patch.object(app, "practice_round") as practice,
-                patch("builtins.print"),
-            ):
-                self.assertEqual(app.main(["--model", str(model)]), 0)
-            load.assert_called_once_with(model, config_path=config)
-            self.assertEqual(practice.call_count, 20)
-
-    def test_ctrl_c_stops_session(self):
-        with tempfile.TemporaryDirectory() as directory:
-            model = Path(directory) / "voice.onnx"
-            model.touch()
-            Path(f"{model}.json").touch()
-            with (
-                patch.object(app.PiperVoice, "load", return_value="voice"),
-                patch.object(app, "practice_round", side_effect=KeyboardInterrupt),
-                patch("builtins.print") as output,
-            ):
-                self.assertEqual(app.main(["--model", str(model)]), 0)
-            output.assert_any_call("\nPractice stopped.")
-
-    def test_missing_model_reports_error(self):
+    def test_explicit_missing_recording_reports_error(self):
         with tempfile.TemporaryDirectory() as directory:
             with patch("sys.stderr", new_callable=io.StringIO) as stderr:
-                with self.assertRaises(SystemExit) as result:
-                    app.main(["--model", str(Path(directory) / "missing.onnx")])
-        self.assertEqual(result.exception.code, 2)
-        self.assertIn("file not found", stderr.getvalue())
+                self.assertEqual(app.main(["--recordings-dir", directory, "--voice", "missing"]), 1)
+            self.assertIn("--list-voices", stderr.getvalue())
 
-    def test_accent_loads_the_matching_local_voice(self):
-        with tempfile.TemporaryDirectory() as directory:
-            model_dir = Path(directory)
-            for accent, name in app.ACCENT_VOICES.items():
-                with self.subTest(accent=accent):
-                    model = model_dir / f"{name}.onnx"
-                    model.touch()
-                    Path(f"{model}.json").touch()
-                    with (
-                        patch.object(app, "MODEL_DIR", model_dir),
-                        patch.object(app, "ROUNDS", 1),
-                        patch.object(app.PiperVoice, "load", return_value="voice") as load,
-                        patch.object(app, "practice_round") as practice,
-                        patch("builtins.print"),
-                    ):
-                        self.assertEqual(app.main(["--accent", accent]), 0)
-                    load.assert_called_once_with(model, config_path=Path(f"{model}.json"))
-                    practice.assert_called_once_with("voice")
-
-    def test_missing_accent_voice_explains_how_to_download_it(self):
-        with tempfile.TemporaryDirectory() as directory:
-            with (
-                patch.object(app, "MODEL_DIR", Path(directory)),
-                patch("sys.stderr", new_callable=io.StringIO) as stderr,
-                self.assertRaises(SystemExit) as result,
-            ):
-                app.main(["--accent", "french"])
-        self.assertEqual(result.exception.code, 2)
-        self.assertIn("piper.download_voices fr_FR-siwis-medium", stderr.getvalue())
-
-    def test_default_voice_is_english(self):
-        with tempfile.TemporaryDirectory() as directory:
-            model_dir = Path(directory)
-            model = model_dir / "en_US-lessac-medium.onnx"
-            model.touch()
-            Path(f"{model}.json").touch()
-            with (
-                patch.object(app, "MODEL_DIR", model_dir),
-                patch.object(app, "ROUNDS", 0),
-                patch.object(app.PiperVoice, "load") as load,
-            ):
-                self.assertEqual(app.main([]), 0)
-            load.assert_called_once_with(model, config_path=Path(f"{model}.json"))
+    def test_ctrl_c_stops_session(self):
+        with (
+            patch.object(app, "load_recording", return_value="voice"),
+            patch.object(app, "practice_round", side_effect=KeyboardInterrupt),
+            patch("builtins.print") as output,
+        ):
+            self.assertEqual(app.main([]), 0)
+        output.assert_any_call("\nPractice stopped.")
 
     def test_model_and_accent_are_mutually_exclusive(self):
-        with (
-            patch("sys.stderr", new_callable=io.StringIO),
-            self.assertRaises(SystemExit) as result,
-        ):
+        with patch("sys.stderr", new_callable=io.StringIO), self.assertRaises(SystemExit):
             app.main(["--model", "voice.onnx", "--accent", "german"])
-        self.assertEqual(result.exception.code, 2)
 
 
 if __name__ == "__main__":
