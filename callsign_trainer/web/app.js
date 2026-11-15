@@ -3,7 +3,7 @@
 const $ = (id) => document.getElementById(id);
 const state = {
   voices: [], levels: [], defaultVoice: "", rounds: 20, round: 0, completed: 0, firstTry: 0,
-  current: null, attempts: 0, revealed: false, phase: "ready",
+  current: null, attempts: 0, revealed: false, lastGuess: "", phase: "ready",
   roundRequest: 0, audioRequest: 0, audio: null, audioUrl: null, controller: null,
 };
 
@@ -15,6 +15,52 @@ function showError(message) {
 function showScreen(name) {
   for (const screen of ["ready", "exercise", "success", "complete"]) {
     $(`${screen}-screen`).hidden = screen !== name;
+  }
+}
+
+function scoreGuess(guess, answer) {
+  const characters = Array.from(guess);
+  const remaining = new Map();
+  const result = characters.map((character, index) => (
+    { character, status: character === answer[index] ? "exact" : "absent" }
+  ));
+  for (let index = 0; index < answer.length; index++) {
+    if (characters[index] !== answer[index]) {
+      remaining.set(answer[index], (remaining.get(answer[index]) || 0) + 1);
+    }
+  }
+  for (const item of result) {
+    if (item.status !== "exact" && (remaining.get(item.character) || 0) > 0) {
+      item.status = "present";
+      remaining.set(item.character, remaining.get(item.character) - 1);
+    }
+  }
+  return result;
+}
+
+function renderGuessHints() {
+  const panel = $("guess-hints");
+  panel.hidden = !$("letter-hints-enabled").checked || !state.lastGuess || !state.current;
+  const tiles = $("guess-tiles");
+  tiles.replaceChildren();
+  if (panel.hidden) return;
+  const details = {
+    exact: ["Right place", "✓"],
+    present: ["In call, wrong place", "↔"],
+    absent: ["Not in call or extra occurrence", "×"],
+  };
+  for (const item of scoreGuess(state.lastGuess, state.current.call_sign)) {
+    const tile = document.createElement("span");
+    tile.className = `guess-tile ${item.status}`;
+    tile.setAttribute("role", "img");
+    tile.setAttribute("aria-label", `${item.character}: ${details[item.status][0]}`);
+    tile.title = details[item.status][0];
+    tile.textContent = item.character;
+    const symbol = document.createElement("span");
+    symbol.setAttribute("aria-hidden", "true");
+    symbol.textContent = details[item.status][1];
+    tile.append(symbol);
+    tiles.append(tile);
   }
 }
 
@@ -197,6 +243,8 @@ async function nextRound() {
     state.current = round;
     state.attempts = 0;
     state.revealed = false;
+    state.lastGuess = "";
+    renderGuessHints();
     state.phase = "exercise";
     $("noise-status").textContent = round.noise ? "NOISE ON" : "NO ADDED NOISE";
     $("round-badge").textContent = `ROUND ${String(state.round).padStart(2, "0")} / ${state.rounds}`;
@@ -233,6 +281,8 @@ function beginSession() {
   state.completed = 0;
   state.firstTry = 0;
   state.current = null;
+  state.lastGuess = "";
+  renderGuessHints();
   state.phase = "ready";
   $("round-badge").textContent = "READY WHEN YOU ARE";
   $("current-voice").textContent = "VOICE NOT SELECTED";
@@ -246,6 +296,8 @@ function beginSession() {
 function revealAnswer() {
   if (!state.current || state.phase !== "exercise") return;
   state.revealed = true;
+  state.lastGuess = "";
+  renderGuessHints();
   state.current.speed = state.current.retry_speed;
   $("feedback").textContent = `The call sign is ${state.current.call_sign}. Enter it to continue.`;
   $("feedback").className = "warning";
@@ -287,6 +339,8 @@ $("answer-form").addEventListener("submit", (event) => {
   }
   state.attempts++;
   if (answer !== state.current.call_sign) {
+    state.lastGuess = answer;
+    renderGuessHints();
     state.current.speed = state.current.retry_speed;
     $("feedback").textContent = "Not quite. Listen again at a slower speed.";
     $("feedback").className = "warning";
@@ -321,6 +375,7 @@ $("again").addEventListener("click", beginSession);
 $("next").addEventListener("click", nextRound);
 $("play").addEventListener("click", playCurrent);
 $("reveal").addEventListener("click", revealAnswer);
+$("letter-hints-enabled").addEventListener("change", renderGuessHints);
 $("restart").addEventListener("click", () => {
   if (state.phase === "complete" || window.confirm("Start a new session? Current progress will be lost.")) beginSession();
 });

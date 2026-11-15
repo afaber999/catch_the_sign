@@ -85,6 +85,17 @@ h3 { font-size: 19px; margin: 0; font-weight: 600; letter-spacing: -.02em; }
 .answer-footer p { color: #a9bcad; font-size: 12px; line-height: 1.5; margin: 11px 0 0; }
 .answer-footer p.warning { color: #f0c98e; }
 .reveal-button { flex-shrink: 0; margin-top: 4px; }
+.guess-hints { margin-top: 17px; padding-top: 16px; border-top: 1px solid #35473b; }
+.guess-heading { margin: 0 0 10px; color: #a8baad; font-size: 10px; font-weight: 700; letter-spacing: .12em; }
+.guess-tiles { display: flex; flex-wrap: wrap; gap: 7px; }
+.guess-tile { position: relative; display: grid; place-items: center; width: 40px; height: 45px; border-radius: 7px; font: 700 18px Consolas, monospace; }
+.guess-tile span { position: absolute; right: 3px; bottom: 1px; font: 700 10px "Segoe UI", sans-serif; }
+.guess-tile.exact, .legend-exact { background: #b7e985; color: #1b3020; }
+.guess-tile.present, .legend-present { background: #e5c379; color: #3b2b0d; }
+.guess-tile.absent, .legend-absent { background: #52635a; color: #f0f5ef; }
+.guess-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 11px; color: #a8baad; font-size: 11px; }
+.guess-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.guess-legend b { display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 4px; font-size: 11px; }
 .success-label { margin-bottom: 9px; }
 .error { margin: 15px 0 0; padding: 11px 13px; color: #ffd1c2; background: #5a2926; border-radius: 8px; font-size: 12px; line-height: 1.5; }
 .sidebar { display: grid; gap: 18px; }

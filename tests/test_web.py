@@ -50,7 +50,11 @@ class WebTests(unittest.TestCase):
     def test_serves_interface_and_valid_voice_list(self):
         status, headers, body = self.request("GET", "/")
         self.assertEqual(status, 200)
+        self.assertIn(b"<title>Catch the Sign</title>", body)
+        self.assertIn(b'aria-label="Catch the Sign home"', body)
         self.assertIn(b"Listening desk", body)
+        self.assertIn(b'id="letter-hints-enabled"', body)
+        self.assertIn(b'id="guess-hints"', body)
         self.assertIn("text/html", headers["Content-Type"])
         self.assertEqual(headers["Cache-Control"], "no-store")
         status, _, body = self.request("GET", "/api/voices")

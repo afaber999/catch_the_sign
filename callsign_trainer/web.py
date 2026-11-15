@@ -1,4 +1,4 @@
-"""Local web interface for call sign listening practice."""
+"""Catch the Sign: local web interface for call sign practice."""
 
 import argparse
 import io

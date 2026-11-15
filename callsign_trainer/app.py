@@ -1,4 +1,4 @@
-"""Terminal-based call sign listening practice."""
+"""Catch the Sign: terminal call sign listening practice."""
 
 import argparse
 import random

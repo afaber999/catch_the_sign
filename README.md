@@ -1,4 +1,4 @@
-# SSB call sign trainer
+# Catch the Sign
 
 Practice recognizing amateur radio call signs spoken in English spelling words
 over randomized background noise. Practice plays indexed recordings offline;
@@ -19,7 +19,7 @@ locally as described below. Recordings and models are not included in Git.
 ## Practice in your browser
 
 ```powershell
-.\.venv\Scripts\ssb-callsign-trainer-web.exe
+.\.venv\Scripts\catch-the-sign-web.exe
 ```
 
 The trainer opens `http://127.0.0.1:8765/` in your browser. Choose a difficulty
@@ -29,6 +29,11 @@ the call sign, and select **Check**. A wrong answer plays it more slowly;
 **Reveal answer** (or entering `?`) shows the answer. The progress panel tracks
 completed rounds and first-try copies. Level and voice changes apply to the next round.
 Audio plays through the browser's output device.
+
+Optionally turn on **Letter hints** to color your last incorrect guess: green
+means the right character in the right place, gold means the character belongs
+elsewhere, and gray means it is absent or an extra occurrence. Hints apply
+immediately and account for repeated letters and digits.
 
 | Level | Calls | Voice and conditions |
 | --- | --- | --- |
@@ -55,12 +60,12 @@ the first audio may take longer while the time-stretch library initializes.
 ## Practice in the terminal
 
 ```powershell
-.\.venv\Scripts\ssb-callsign-trainer.exe --list-voices
-.\.venv\Scripts\ssb-callsign-trainer.exe
-.\.venv\Scripts\ssb-callsign-trainer.exe --voice en_GB-alan-medium
-.\.venv\Scripts\ssb-callsign-trainer.exe --accent dutch
-.\.venv\Scripts\ssb-callsign-trainer.exe --random
-.\.venv\Scripts\ssb-callsign-trainer.exe --random --voice nl_NL-pim-medium --voice fr_FR-siwis-medium
+.\.venv\Scripts\catch-the-sign.exe --list-voices
+.\.venv\Scripts\catch-the-sign.exe
+.\.venv\Scripts\catch-the-sign.exe --voice en_GB-alan-medium
+.\.venv\Scripts\catch-the-sign.exe --accent dutch
+.\.venv\Scripts\catch-the-sign.exe --random
+.\.venv\Scripts\catch-the-sign.exe --random --voice nl_NL-pim-medium --voice fr_FR-siwis-medium
 ```
 
 The default is `en_US-lessac-medium`, if its recording is available. `--voice`
@@ -85,6 +90,8 @@ artifacts. Background noise continues throughout each playback.
 
 For compatibility, `--model PATH` selects the recording named after the `.onnx`
 model, without opening it; this option is deprecated. `--config` is ignored.
+The previous `ssb-callsign-trainer` and `ssb-callsign-trainer-web` launch
+commands remain available.
 
 ## Generate recordings with Piper
 
@@ -174,4 +181,10 @@ first, then run:
 
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+If Node.js is installed, also run the letter-hint tests:
+
+```powershell
+node --test .\tests\test_guess_hints.js
 ```

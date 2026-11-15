@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ssb-callsign-trainer"
 version = "0.1.0"
-description = "Practice listening to amateur radio call signs"
+description = "Catch the Sign: practice listening to amateur radio call signs"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "numpy>=1.26,<3",
@@ -17,6 +17,8 @@ dependencies = [
 generation = ["piper-tts>=1.5,<2"]
 
 [project.scripts]
+catch-the-sign = "callsign_trainer.app:main"
+catch-the-sign-web = "callsign_trainer.web:main"
 ssb-callsign-trainer = "callsign_trainer.app:main"
 ssb-callsign-trainer-web = "callsign_trainer.web:main"
 
