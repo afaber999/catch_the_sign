@@ -30,9 +30,15 @@ PRONUNCIATION_OVERRIDES = {
     },
 }
 
+VOICE_PRONUNCIATION_OVERRIDES = {
+    "en_US-lessac-medium": {"Z": "zoo loo"},
+}
 
-def phonetic_call_sign(call_sign, language=None):
+
+def phonetic_call_sign(call_sign, language=None, voice=None):
     overrides = PRONUNCIATION_OVERRIDES.get(language, {})
+    voice_overrides = VOICE_PRONUNCIATION_OVERRIDES.get(voice, {})
     return " ".join(
-        overrides.get(character, PHONETIC_WORDS[character]) for character in call_sign
+        voice_overrides.get(character, overrides.get(character, PHONETIC_WORDS[character]))
+        for character in call_sign
     )

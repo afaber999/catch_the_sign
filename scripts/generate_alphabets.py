@@ -117,7 +117,7 @@ def generate_recording(model, output_dir, overwrite=False, speaker_id=None):
             wav.setsampwidth(2)
             wav.setframerate(sample_rate)
             for character in CHARACTERS:
-                text = phonetic_call_sign(character, voice.config.espeak_voice)
+                text = phonetic_call_sign(character, voice.config.espeak_voice, model.stem)
                 samples, rate = synthesize(voice, text, speaker_id)
                 if rate != sample_rate or samples.size == 0:
                     raise ValueError(f"inconsistent or empty audio for {character}")

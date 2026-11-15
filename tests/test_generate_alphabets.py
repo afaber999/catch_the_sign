@@ -70,6 +70,22 @@ class GenerateAlphabetsTests(unittest.TestCase):
         self.assertAlmostEqual(french.length_scale, 1.0 / 0.8)
         self.assertAlmostEqual(italian.length_scale, 1.0 / (0.8 * 0.65))
 
+    def test_us_lessac_uses_selected_zulu_without_changing_other_voices(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "output"
+            for name, language, expected in (
+                ("en_US-lessac-medium", "en-us", "zoo loo"),
+                ("en_US-other", "en-us", "Zulu"),
+                ("en_GB-alan-medium", "en-gb-x-rp", "Zulu"),
+            ):
+                model = self.create_model(directory, name)
+                with (
+                    patch("piper.PiperVoice.load", return_value=self.make_voice(language)),
+                    patch.object(generator, "synthesize", return_value=(np.array([1], dtype="<i2"), 1000)) as synthesize,
+                ):
+                    generator.generate_recording(model, output)
+                self.assertEqual(synthesize.call_args_list[25].args[1], expected)
+
     def test_empty_synthesis_is_an_error(self):
         class EmptyVoice:
             config = SimpleNamespace(sample_rate=22050, length_scale=1.0, espeak_voice="en")
