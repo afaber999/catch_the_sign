@@ -73,6 +73,20 @@ Use the corresponding voice name and accent for the other choices. Without
 These voices use their own language's pronunciation rules, so the resulting
 accents are approximations and some English words may be mispronounced.
 
+## Alphabet recordings
+
+Generate one clean WAV recording of the English NATO alphabet (A–Z) followed by
+the numbers 0–9 per accent.
+Download all five voices listed above first, then run:
+
+```powershell
+.\.venv\Scripts\python.exe .\scripts\generate_alphabets.py
+```
+
+The recordings are saved to `alphabet_wavs\`. Use `--output-dir PATH` to choose
+another folder, `--models-dir PATH` for a different model folder, or
+`--overwrite` to replace existing recordings.
+
 ## Tests
 
 ```powershell

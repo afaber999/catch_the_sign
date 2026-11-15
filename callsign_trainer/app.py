@@ -36,6 +36,24 @@ ACCENT_VOICES = {
     "italian": "it_IT-paola-medium",
     "russian": "ru_RU-irina-medium",
 }
+DUTCH_PRONUNCIATIONS = {
+    "A": "alfa",
+    "J": "djoelie-et",
+    "M": "maik",
+    "Q": "kwiebek",
+    "R": "roomie-o",
+    "T": "tenggo",
+    "X": "eks reej",
+    "1": "wan",
+    "2": "toe",
+    "3": "trie",
+    "4": "for",
+    "5": "faiv",
+    "6": "sikss",
+    "7": "sevven",
+    "8": "eit",
+    "9": "nain",
+}
 
 
 def random_call_sign():
@@ -46,12 +64,10 @@ def random_call_sign():
 
 
 def phonetic_call_sign(call_sign, language=None):
-    # This spelling produces a clearer English X-ray with Dutch Piper voices.
+    # These spellings were selected by listening to the Dutch Piper voice.
+    overrides = DUTCH_PRONUNCIATIONS if language == "nl" else {}
     return " ".join(
-        "eks reej"
-        if language == "nl" and character == "X"
-        else PHONETIC_WORDS[character]
-        for character in call_sign
+        overrides.get(character, PHONETIC_WORDS[character]) for character in call_sign
     )
 
 

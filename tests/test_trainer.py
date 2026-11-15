@@ -78,6 +78,29 @@ class TrainerTests(unittest.TestCase):
                     app.play_call_sign(voice, "X", 1.0)
                 synthesize.assert_called_once_with(voice, expected, 1.0)
 
+    def test_dutch_uses_listening_tested_words_and_numbers(self):
+        voice = SimpleNamespace(config=SimpleNamespace(espeak_voice="nl"))
+        with (
+            patch.object(
+                app, "synthesize", return_value=(np.zeros(1), 1000)
+            ) as synthesize,
+            patch.object(app.sd, "play"),
+            patch.object(app.sd, "wait"),
+        ):
+            app.play_call_sign(voice, "AJMQRT123456789X", 1.0)
+        synthesize.assert_called_once_with(
+            voice,
+            "alfa djoelie-et maik kwiebek roomie-o tenggo "
+            "wan toe trie for faiv sikss sevven eit nain eks reej",
+            1.0,
+        )
+        self.assertEqual(
+            app.phonetic_call_sign("AJMQRT0123456789X", "en-us"),
+            "Alpha Juliett Mike Quebec Romeo Tango Zero One Two Three Four "
+            "Five Six Seven Eight Nine X-ray",
+        )
+        self.assertEqual(app.phonetic_call_sign("0", "nl"), "Zero")
+
     def test_synthesis_uses_model_rate_and_speed(self):
         class FakeVoice:
             config = SimpleNamespace(sample_rate=22050, length_scale=1.2)
