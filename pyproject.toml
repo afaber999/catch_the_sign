@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ssb-callsign-trainer"
+version = "0.1.0"
+description = "Practice listening to amateur radio call signs"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "numpy>=1.26,<3",
+    "piper-tts>=1.5,<2",
+    "sounddevice>=0.5,<1",
+]
+
+[project.scripts]
+ssb-callsign-trainer = "callsign_trainer.app:main"
+
+[tool.setuptools]
+packages = ["callsign_trainer"]
+
+[tool.setuptools.package-data]
+callsign_trainer = ["prefixes.txt"]
