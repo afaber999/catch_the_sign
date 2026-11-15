@@ -324,6 +324,34 @@ function playSuccess() {
   } catch (_) { /* Sound is optional if the browser blocks audio. */ }
 }
 
+function handleShortcut(event) {
+  if (
+    event.defaultPrevented || event.isComposing || event.repeat ||
+    event.altKey || event.ctrlKey || event.metaKey || event.shiftKey
+  ) return;
+  const target = event.target;
+  const interactive = target && typeof target.closest === "function"
+    ? target.closest("input, select, textarea, button, a, [contenteditable]")
+    : null;
+  if (interactive && interactive !== $("answer")) return;
+  if (state.phase === "exercise" && state.current) {
+    if (event.key === "ArrowUp" && !$("play").disabled) {
+      event.preventDefault();
+      playCurrent();
+    } else if (event.key === "Enter" && !interactive) {
+      event.preventDefault();
+      $("answer-form").requestSubmit();
+    }
+  } else if (event.key === "Enter" && !interactive) {
+    const button = state.phase === "success" ? $("next") :
+      state.phase === "complete" ? $("again") : null;
+    if (button && !button.disabled) {
+      event.preventDefault();
+      button.click();
+    }
+  }
+}
+
 $("answer-form").addEventListener("submit", (event) => {
   event.preventDefault();
   if (!state.current || state.phase !== "exercise") return;
@@ -376,6 +404,7 @@ $("next").addEventListener("click", nextRound);
 $("play").addEventListener("click", playCurrent);
 $("reveal").addEventListener("click", revealAnswer);
 $("letter-hints-enabled").addEventListener("change", renderGuessHints);
+document.addEventListener("keydown", handleShortcut);
 $("restart").addEventListener("click", () => {
   if (state.phase === "complete" || window.confirm("Start a new session? Current progress will be lost.")) beginSession();
 });

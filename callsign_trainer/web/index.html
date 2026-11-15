@@ -59,7 +59,7 @@
                 <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
                 <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
               </div>
-              <button class="play-button" id="play" type="button" aria-label="Play call sign" disabled>
+              <button class="play-button" id="play" type="button" aria-label="Play call sign" aria-keyshortcuts="ArrowUp" disabled>
                 <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 4.7a1 1 0 0 1 1.53-.85l11 6.8a1.6 1.6 0 0 1 0 2.7l-11 6.8A1 1 0 0 1 8 19.3V4.7Z"/></svg>
               </button>
               <p id="play-hint">Your next signal is waiting.</p>
@@ -77,13 +77,14 @@
               <div class="answer-heading"><label for="answer">YOUR COPY</label><span>Letters &amp; numbers</span></div>
               <div class="answer-row">
                 <input id="answer" name="answer" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="24" placeholder="TYPE THE CALL SIGN">
-                <button class="primary-button check-button" type="submit">Check <span aria-hidden="true">↗</span></button>
+                <button class="primary-button check-button" type="submit" aria-keyshortcuts="Enter">Check <span aria-hidden="true">↗</span></button>
               </div>
             </form>
             <div class="answer-footer">
               <p id="feedback" role="status" aria-live="polite">Listen, then enter what you heard.</p>
               <button class="reveal-button" id="reveal" type="button">Reveal answer <span aria-hidden="true">↗</span></button>
             </div>
+            <p class="keyboard-hint"><kbd>↑</kbd> Replay <span></span><kbd>Enter</kbd> Check</p>
             <div class="guess-hints" id="guess-hints" aria-live="polite" hidden>
               <p class="guess-heading">YOUR LAST GUESS</p>
               <div class="guess-tiles" id="guess-tiles" aria-label="Letter hints"></div>

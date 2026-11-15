@@ -55,6 +55,8 @@ class WebTests(unittest.TestCase):
         self.assertIn(b"Listening desk", body)
         self.assertIn(b'id="letter-hints-enabled"', body)
         self.assertIn(b'id="guess-hints"', body)
+        self.assertIn(b'aria-keyshortcuts="ArrowUp"', body)
+        self.assertIn(b'aria-keyshortcuts="Enter"', body)
         self.assertIn("text/html", headers["Content-Type"])
         self.assertEqual(headers["Cache-Control"], "no-store")
         status, _, body = self.request("GET", "/api/voices")

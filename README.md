@@ -30,6 +30,9 @@ the call sign, and select **Check**. A wrong answer plays it more slowly;
 completed rounds and first-try copies. Level and voice changes apply to the next round.
 Audio plays through the browser's output device.
 
+Press **Up Arrow** to replay the current call and **Enter** to check your answer
+or advance after a correct answer.
+
 Optionally turn on **Letter hints** to color your last incorrect guess: green
 means the right character in the right place, gold means the character belongs
 elsewhere, and gray means it is absent or an extra occurrence. Hints apply
@@ -186,5 +189,5 @@ first, then run:
 If Node.js is installed, also run the letter-hint tests:
 
 ```powershell
-node --test .\tests\test_guess_hints.js
+node --test .\tests\test_guess_hints.js .\tests\test_shortcuts.js
 ```

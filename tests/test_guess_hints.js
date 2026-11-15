@@ -8,7 +8,7 @@ const vm = require("node:vm");
 
 const element = { addEventListener() {} };
 const context = vm.createContext({
-  document: { getElementById: () => element },
+  document: { getElementById: () => element, addEventListener() {} },
   fetch: () => new Promise(() => {}),
 });
 const source = fs.readFileSync(

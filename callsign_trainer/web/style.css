@@ -85,6 +85,9 @@ h3 { font-size: 19px; margin: 0; font-weight: 600; letter-spacing: -.02em; }
 .answer-footer p { color: #a9bcad; font-size: 12px; line-height: 1.5; margin: 11px 0 0; }
 .answer-footer p.warning { color: #f0c98e; }
 .reveal-button { flex-shrink: 0; margin-top: 4px; }
+.keyboard-hint { display: flex; align-items: center; gap: 6px; margin: 8px 0 0; color: #a8baad; font-size: 11px; }
+.keyboard-hint > span { width: 10px; }
+kbd { border: 1px solid #536459; border-radius: 4px; padding: 2px 6px; color: #d6e0d6; font: 11px "Segoe UI", sans-serif; }
 .guess-hints { margin-top: 17px; padding-top: 16px; border-top: 1px solid #35473b; }
 .guess-heading { margin: 0 0 10px; color: #a8baad; font-size: 10px; font-weight: 700; letter-spacing: .12em; }
 .guess-tiles { display: flex; flex-wrap: wrap; gap: 7px; }
