@@ -47,6 +47,7 @@ class TrainerTests(unittest.TestCase):
 
     def test_noise_covers_full_speech_with_lead_in(self):
         speech = np.zeros(500, dtype=np.float32)
+        voice = SimpleNamespace(config=SimpleNamespace(espeak_voice="en-us"))
         with (
             patch.object(app, "synthesize", return_value=(speech, 1000)),
             patch.object(app.random, "uniform", return_value=0.03),
@@ -58,10 +59,24 @@ class TrainerTests(unittest.TestCase):
             patch.object(app.sd, "play") as play,
             patch.object(app.sd, "wait"),
         ):
-            app.play_call_sign("voice", "1A", 1.0)
+            app.play_call_sign(voice, "1A", 1.0)
         noise.assert_called_once_with(0, 0.03, 600)
         self.assertEqual(len(play.call_args.args[0]), 600)
         np.testing.assert_allclose(play.call_args.args[0], 0.03)
+
+    def test_dutch_xray_uses_listening_tested_pronunciation(self):
+        for language, expected in [("nl", "eks reej"), ("en-us", "X-ray")]:
+            with self.subTest(language=language):
+                voice = SimpleNamespace(config=SimpleNamespace(espeak_voice=language))
+                with (
+                    patch.object(
+                        app, "synthesize", return_value=(np.zeros(1), 1000)
+                    ) as synthesize,
+                    patch.object(app.sd, "play"),
+                    patch.object(app.sd, "wait"),
+                ):
+                    app.play_call_sign(voice, "X", 1.0)
+                synthesize.assert_called_once_with(voice, expected, 1.0)
 
     def test_synthesis_uses_model_rate_and_speed(self):
         class FakeVoice:

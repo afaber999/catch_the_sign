@@ -45,8 +45,14 @@ def random_call_sign():
     )
 
 
-def phonetic_call_sign(call_sign):
-    return " ".join(PHONETIC_WORDS[character] for character in call_sign)
+def phonetic_call_sign(call_sign, language=None):
+    # This spelling produces a clearer English X-ray with Dutch Piper voices.
+    return " ".join(
+        "eks reej"
+        if language == "nl" and character == "X"
+        else PHONETIC_WORDS[character]
+        for character in call_sign
+    )
 
 
 def synthesize(voice, text, speed):
@@ -72,7 +78,8 @@ def synthesize(voice, text, speed):
 
 
 def play_call_sign(voice, call_sign, speed):
-    speech, sample_rate = synthesize(voice, phonetic_call_sign(call_sign), speed)
+    text = phonetic_call_sign(call_sign, voice.config.espeak_voice)
+    speech, sample_rate = synthesize(voice, text, speed)
     lead_in = np.zeros(int(sample_rate * 0.1), dtype=np.float32)
     speech = np.concatenate((lead_in, speech))
     noise = np.random.normal(0, random.uniform(0.01, 0.05), speech.size)
